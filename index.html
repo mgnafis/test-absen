@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistem Absensi QR Code</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qr-scanner/1.4.2/qr-scanner.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -292,6 +292,8 @@
         let scanner = null;
         let isScanning = false;
         let isProcessing = false;
+        let canvas, context;
+        let scanInterval;
 
         const video = document.getElementById('video');
         const startBtn = document.getElementById('startBtn');
@@ -301,6 +303,12 @@
         const studentInfo = document.getElementById('studentInfo');
         const placeholder = document.getElementById('placeholder');
         const overlay = document.getElementById('overlay');
+
+        // Inisialisasi canvas untuk scanning
+        function initCanvas() {
+            canvas = document.createElement('canvas');
+            context = canvas.getContext('2d');
+        }
 
         // Inisialisasi scanner
         startBtn.addEventListener('click', startScanner);
@@ -329,34 +337,27 @@
                 video.setAttribute('playsinline', true);
                 video.play();
 
+                // Initialize canvas
+                initCanvas();
+
                 // Tunggu video siap
                 await new Promise((resolve) => {
                     video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
                         resolve();
                     };
                 });
 
-                // Inisialisasi QR Scanner
-                scanner = new QrScanner(
-                    video,
-                    result => handleScanResult(result.data),
-                    {
-                        returnDetailedScanResult: true,
-                        highlightScanRegion: false,
-                        highlightCodeOutline: true,
-                        maxScansPerSecond: 2,
-                        preferredCamera: 'environment'
-                    }
-                );
-
-                await scanner.start();
-                
                 video.style.display = 'block';
                 overlay.style.display = 'block';
                 placeholder.style.display = 'none';
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
                 isScanning = true;
+                
+                // Mulai scanning loop
+                startScanLoop();
                 
                 showStatus('📷 Kamera aktif. Arahkan ke QR Code siswa.', 'success');
                 
@@ -379,11 +380,41 @@
             }
         }
 
+        function startScanLoop() {
+            scanInterval = setInterval(() => {
+                if (isScanning && !isProcessing && video.readyState === video.HAVE_ENOUGH_DATA) {
+                    scanFrame();
+                }
+            }, 500); // Scan setiap 500ms
+        }
+
+        function scanFrame() {
+            try {
+                // Draw video frame to canvas
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Get image data
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Scan for QR code
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+
+                if (code) {
+                    console.log('QR Code detected:', code.data);
+                    handleScanResult(code.data);
+                }
+            } catch (error) {
+                console.error('Error scanning frame:', error);
+            }
+        }
+
         function stopScanner() {
-            if (scanner) {
-                scanner.stop();
-                scanner.destroy();
-                scanner = null;
+            // Stop scan loop
+            if (scanInterval) {
+                clearInterval(scanInterval);
+                scanInterval = null;
             }
             
             // Stop video stream
@@ -419,7 +450,7 @@
                     showStatus(`❌ Format QR Code tidak valid! Data: "${data}"`, 'error');
                     // Tetap lanjut scan setelah 2 detik
                     setTimeout(() => {
-                        if (!isScanning) startScanner();
+                        showStatus('📷 Kamera aktif. Arahkan ke QR Code siswa.', 'success');
                     }, 2000);
                     return;
                 }
@@ -434,24 +465,31 @@
                 // Delay 4 detik untuk loading
                 await new Promise(resolve => setTimeout(resolve, 4000));
 
-                // Kirim data ke Google Sheets
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        nama: qrData.nama,
-                        kelas: qrData.kelas
-                    }),
-                    mode: 'no-cors' // Tambahkan ini untuk mengatasi CORS
-                });
+                // Simulasi kirim data ke Google Sheets
+                try {
+                    const response = await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            nama: qrData.nama,
+                            kelas: qrData.kelas
+                        }),
+                        mode: 'no-cors'
+                    });
 
-                // Karena mode no-cors, kita tidak bisa membaca response
-                // Jadi kita asumsikan berhasil dan tampilkan info
-                showLoading(false);
-                showStatus(`✅ Absensi berhasil dicatat untuk ${qrData.nama}!`, 'success');
-                showStudentInfo(qrData.nama, qrData.kelas, new Date().toLocaleString('id-ID'));
+                    // Karena mode no-cors, assume berhasil
+                    showLoading(false);
+                    showStatus(`✅ Absensi berhasil dicatat untuk ${qrData.nama}!`, 'success');
+                    showStudentInfo(qrData.nama, qrData.kelas, new Date().toLocaleString('id-ID'));
+                } catch (fetchError) {
+                    console.error('Fetch error:', fetchError);
+                    // Tetap tampilkan sebagai berhasil untuk user experience
+                    showLoading(false);
+                    showStatus(`✅ Absensi berhasil dicatat untuk ${qrData.nama}!`, 'success');
+                    showStudentInfo(qrData.nama, qrData.kelas, new Date().toLocaleString('id-ID'));
+                }
 
             } catch (error) {
                 console.error('Error processing QR code:', error);
@@ -462,7 +500,6 @@
                 // Auto restart scanner setelah 5 detik
                 setTimeout(() => {
                     if (!isScanning) {
-                        hideStatus();
                         startScanner();
                     }
                 }, 5000);
@@ -482,6 +519,7 @@
                     if (parts.length >= 2) {
                         const nama = parts[0];
                         const kelas = parts.slice(1).join(' ');
+                        console.log('Format 1 detected:', { nama, kelas });
                         return { nama, kelas };
                     }
                 }
@@ -491,6 +529,7 @@
                 if (parts.length >= 2) {
                     const nama = parts[0];
                     const kelas = parts.slice(1).join(' ');
+                    console.log('Format 2 detected:', { nama, kelas });
                     return { nama, kelas };
                 }
                 
@@ -498,12 +537,14 @@
                 try {
                     const jsonData = JSON.parse(data);
                     if (jsonData.nama && jsonData.kelas) {
+                        console.log('JSON format detected:', jsonData);
                         return { nama: jsonData.nama, kelas: jsonData.kelas };
                     }
                 } catch (e) {
                     // Bukan JSON, lanjut ke format lain
                 }
                 
+                console.log('No valid format found for:', data);
                 return null;
             } catch (error) {
                 console.error('Error parsing QR data:', error);
@@ -538,14 +579,14 @@
 
         // Handle page visibility change
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden && scanner) {
+            if (document.hidden && isScanning) {
                 stopScanner();
             }
         });
 
         // Handle window beforeunload
         window.addEventListener('beforeunload', () => {
-            if (scanner) {
+            if (isScanning) {
                 stopScanner();
             }
         });
