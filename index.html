@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi QR Code</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qr-scanner/1.4.2/qr-scanner.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 30px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .header {
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .scanner-container {
+            position: relative;
+            margin: 30px 0;
+            border-radius: 15px;
+            overflow: hidden;
+            background: #f8f9fa;
+            border: 3px dashed #ddd;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #video {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+            border-radius: 12px;
+        }
+
+        .scanner-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 3px solid #667eea;
+            border-radius: 15px;
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+        }
+
+        .scanner-overlay::before,
+        .scanner-overlay::after {
+            content: '';
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 4px solid #667eea;
+        }
+
+        .scanner-overlay::before {
+            top: -4px;
+            left: -4px;
+            border-right: none;
+            border-bottom: none;
+        }
+
+        .scanner-overlay::after {
+            bottom: -4px;
+            right: -4px;
+            border-left: none;
+            border-top: none;
+        }
+
+        .controls {
+            margin: 20px 0;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 0 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 10px;
+            font-weight: 500;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .student-info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .student-info h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .student-info p {
+            color: #666;
+            margin: 5px 0;
+        }
+
+        .instructions {
+            background: #e7f3ff;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 4px solid #667eea;
+        }
+
+        .instructions h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .instructions ul {
+            text-align: left;
+            color: #666;
+        }
+
+        .instructions li {
+            margin: 5px 0;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            .header h1 {
+                font-size: 24px;
+            }
+            
+            #video {
+                height: 250px;
+            }
+            
+            .scanner-overlay {
+                width: 150px;
+                height: 150px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📱 Sistem Absensi QR Code</h1>
+            <p>Scan QR Code siswa untuk mencatat kehadiran</p>
+        </div>
+
+        <div class="scanner-container">
+            <video id="video" style="display: none;"></video>
+            <div class="scanner-overlay" id="overlay" style="display: none;"></div>
+            <div id="placeholder" style="color: #999; font-size: 18px;">
+                Klik "Mulai Scan" untuk memulai
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="startBtn" class="btn">📷 Mulai Scan</button>
+            <button id="stopBtn" class="btn" style="display: none;">⏹️ Stop</button>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Memproses absensi...</p>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div id="studentInfo" class="student-info">
+            <h3>📋 Informasi Siswa</h3>
+            <p><strong>Nama:</strong> <span id="studentName">-</span></p>
+            <p><strong>Kelas:</strong> <span id="studentClass">-</span></p>
+            <p><strong>Waktu:</strong> <span id="attendTime">-</span></p>
+        </div>
+
+        <div class="instructions">
+            <h3>📖 Cara Penggunaan:</h3>
+            <ul>
+                <li>Klik tombol "Mulai Scan"</li>
+                <li>Arahkan kamera ke QR Code siswa</li>
+                <li>Tunggu proses verifikasi (4 detik)</li>
+                <li>Data akan otomatis tersimpan ke spreadsheet</li>
+                <li>Siswa hanya dapat absen 1x per hari</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Ganti dengan URL Web App Google Apps Script Anda
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby3M9aslD2kOsAZDZF73A7lmWaQyvjW6eZC5SwNifAVqVY61nwYPqlkqT4kSHG4TmiGKw/exec';
+        
+        let scanner = null;
+        let isScanning = false;
+        let isProcessing = false;
+
+        const video = document.getElementById('video');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const loading = document.getElementById('loading');
+        const studentInfo = document.getElementById('studentInfo');
+        const placeholder = document.getElementById('placeholder');
+        const overlay = document.getElementById('overlay');
+
+        // Inisialisasi scanner
+        startBtn.addEventListener('click', startScanner);
+        stopBtn.addEventListener('click', stopScanner);
+
+        async function startScanner() {
+            try {
+                showStatus('Mengaktifkan kamera...', 'info');
+                
+                scanner = new QrScanner(
+                    video,
+                    result => handleScanResult(result.data),
+                    {
+                        returnDetailedScanResult: true,
+                        highlightScanRegion: true,
+                        highlightCodeOutline: true,
+                    }
+                );
+
+                await scanner.start();
+                
+                video.style.display = 'block';
+                overlay.style.display = 'block';
+                placeholder.style.display = 'none';
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-block';
+                isScanning = true;
+                
+                showStatus('Kamera aktif. Arahkan ke QR Code siswa.', 'info');
+                
+            } catch (error) {
+                console.error('Error starting scanner:', error);
+                showStatus('Gagal mengaktifkan kamera. Pastikan izin kamera sudah diberikan.', 'error');
+            }
+        }
+
+        function stopScanner() {
+            if (scanner) {
+                scanner.stop();
+                scanner.destroy();
+                scanner = null;
+            }
+            
+            video.style.display = 'none';
+            overlay.style.display = 'none';
+            placeholder.style.display = 'block';
+            startBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
+            isScanning = false;
+            
+            hideStatus();
+            hideStudentInfo();
+        }
+
+        async function handleScanResult(data) {
+            if (isProcessing) return;
+            
+            try {
+                // Parse QR Code data (format: "Nama: FATIH TJKT-ACP")
+                const qrData = parseQRData(data);
+                if (!qrData) {
+                    showStatus('Format QR Code tidak valid!', 'error');
+                    return;
+                }
+
+                isProcessing = true;
+                stopScanner();
+                showLoading(true);
+                showStatus('Memverifikasi data siswa...', 'info');
+
+                // Delay 4 detik untuk loading
+                await new Promise(resolve => setTimeout(resolve, 4000));
+
+                // Kirim data ke Google Sheets
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        nama: qrData.nama,
+                        kelas: qrData.kelas
+                    })
+                });
+
+                const result = await response.json();
+                
+                showLoading(false);
+
+                if (result.success) {
+                    showStatus(`✅ ${result.message}`, 'success');
+                    showStudentInfo(qrData.nama, qrData.kelas, new Date().toLocaleString('id-ID'));
+                } else {
+                    showStatus(`❌ ${result.message}`, 'error');
+                }
+
+            } catch (error) {
+                console.error('Error processing QR code:', error);
+                showLoading(false);
+                showStatus('Terjadi kesalahan saat memproses data!', 'error');
+            } finally {
+                isProcessing = false;
+                // Auto restart scanner setelah 3 detik
+                setTimeout(() => {
+                    if (!isScanning) startScanner();
+                }, 3000);
+            }
+        }
+
+        function parseQRData(data) {
+            try {
+                // Format: "Nama: FATIH TJKT-ACP"
+                const parts = data.split(' ');
+                if (parts.length >= 2 && parts[0].toLowerCase().includes('nama')) {
+                    const nama = parts[1];
+                    const kelas = parts[2] || '';
+                    return { nama, kelas };
+                }
+                return null;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function hideStatus() {
+            status.style.display = 'none';
+        }
+
+        function showLoading(show) {
+            loading.style.display = show ? 'block' : 'none';
+        }
+
+        function showStudentInfo(nama, kelas, waktu) {
+            document.getElementById('studentName').textContent = nama;
+            document.getElementById('studentClass').textContent = kelas;
+            document.getElementById('attendTime').textContent = waktu;
+            studentInfo.style.display = 'block';
+        }
+
+        function hideStudentInfo() {
+            studentInfo.style.display = 'none';
+        }
+
+        // Handle page visibility change
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && scanner) {
+                stopScanner();
+            }
+        });
+    </script>
+</body>
+</html>
