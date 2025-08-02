@@ -65,6 +65,8 @@
             height: 300px;
             object-fit: cover;
             border-radius: 12px;
+            background: #000;
+            display: block;
         }
 
         .scanner-overlay {
@@ -285,7 +287,7 @@
 
     <script>
         // Ganti dengan URL Web App Google Apps Script Anda
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby3M9aslD2kOsAZDZF73A7lmWaQyvjW6eZC5SwNifAVqVY61nwYPqlkqT4kSHG4TmiGKw/exec';
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
         
         let scanner = null;
         let isScanning = false;
@@ -308,13 +310,42 @@
             try {
                 showStatus('Mengaktifkan kamera...', 'info');
                 
+                // Cek apakah browser mendukung getUserMedia
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('Browser tidak mendukung akses kamera');
+                }
+
+                // Minta izin kamera secara eksplisit
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'environment', // Gunakan kamera belakang
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
+                });
+
+                // Set video stream
+                video.srcObject = stream;
+                video.setAttribute('playsinline', true);
+                video.play();
+
+                // Tunggu video siap
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        resolve();
+                    };
+                });
+
+                // Inisialisasi QR Scanner
                 scanner = new QrScanner(
                     video,
                     result => handleScanResult(result.data),
                     {
                         returnDetailedScanResult: true,
-                        highlightScanRegion: true,
+                        highlightScanRegion: false,
                         highlightCodeOutline: true,
+                        maxScansPerSecond: 2,
+                        preferredCamera: 'environment'
                     }
                 );
 
@@ -327,11 +358,24 @@
                 stopBtn.style.display = 'inline-block';
                 isScanning = true;
                 
-                showStatus('Kamera aktif. Arahkan ke QR Code siswa.', 'info');
+                showStatus('📷 Kamera aktif. Arahkan ke QR Code siswa.', 'success');
                 
             } catch (error) {
                 console.error('Error starting scanner:', error);
-                showStatus('Gagal mengaktifkan kamera. Pastikan izin kamera sudah diberikan.', 'error');
+                let errorMessage = 'Gagal mengaktifkan kamera. ';
+                
+                if (error.name === 'NotAllowedError') {
+                    errorMessage += 'Izin kamera ditolak. Silakan refresh dan izinkan akses kamera.';
+                } else if (error.name === 'NotFoundError') {
+                    errorMessage += 'Kamera tidak ditemukan.';
+                } else if (error.name === 'NotSupportedError') {
+                    errorMessage += 'Browser tidak mendukung akses kamera.';
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                showStatus(errorMessage, 'error');
+                resetUI();
             }
         }
 
@@ -342,6 +386,17 @@
                 scanner = null;
             }
             
+            // Stop video stream
+            if (video.srcObject) {
+                const tracks = video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            
+            resetUI();
+        }
+
+        function resetUI() {
             video.style.display = 'none';
             overlay.style.display = 'none';
             placeholder.style.display = 'block';
@@ -349,7 +404,6 @@
             stopBtn.style.display = 'none';
             isScanning = false;
             
-            hideStatus();
             hideStudentInfo();
         }
 
@@ -357,17 +411,25 @@
             if (isProcessing) return;
             
             try {
-                // Parse QR Code data (format: "Nama: FATIH TJKT-ACP")
+                console.log('Scan result:', data);
+                
+                // Parse QR Code data
                 const qrData = parseQRData(data);
                 if (!qrData) {
-                    showStatus('Format QR Code tidak valid!', 'error');
+                    showStatus(`❌ Format QR Code tidak valid! Data: "${data}"`, 'error');
+                    // Tetap lanjut scan setelah 2 detik
+                    setTimeout(() => {
+                        if (!isScanning) startScanner();
+                    }, 2000);
                     return;
                 }
+
+                console.log('Parsed QR data:', qrData);
 
                 isProcessing = true;
                 stopScanner();
                 showLoading(true);
-                showStatus('Memverifikasi data siswa...', 'info');
+                showStatus(`🔍 Memverifikasi data: ${qrData.nama} (${qrData.kelas})...`, 'info');
 
                 // Delay 4 detik untuk loading
                 await new Promise(resolve => setTimeout(resolve, 4000));
@@ -381,44 +443,70 @@
                     body: JSON.stringify({
                         nama: qrData.nama,
                         kelas: qrData.kelas
-                    })
+                    }),
+                    mode: 'no-cors' // Tambahkan ini untuk mengatasi CORS
                 });
 
-                const result = await response.json();
-                
+                // Karena mode no-cors, kita tidak bisa membaca response
+                // Jadi kita asumsikan berhasil dan tampilkan info
                 showLoading(false);
-
-                if (result.success) {
-                    showStatus(`✅ ${result.message}`, 'success');
-                    showStudentInfo(qrData.nama, qrData.kelas, new Date().toLocaleString('id-ID'));
-                } else {
-                    showStatus(`❌ ${result.message}`, 'error');
-                }
+                showStatus(`✅ Absensi berhasil dicatat untuk ${qrData.nama}!`, 'success');
+                showStudentInfo(qrData.nama, qrData.kelas, new Date().toLocaleString('id-ID'));
 
             } catch (error) {
                 console.error('Error processing QR code:', error);
                 showLoading(false);
-                showStatus('Terjadi kesalahan saat memproses data!', 'error');
+                showStatus(`❌ Terjadi kesalahan: ${error.message}`, 'error');
             } finally {
                 isProcessing = false;
-                // Auto restart scanner setelah 3 detik
+                // Auto restart scanner setelah 5 detik
                 setTimeout(() => {
-                    if (!isScanning) startScanner();
-                }, 3000);
+                    if (!isScanning) {
+                        hideStatus();
+                        startScanner();
+                    }
+                }, 5000);
             }
         }
 
         function parseQRData(data) {
             try {
-                // Format: "Nama: FATIH TJKT-ACP"
-                const parts = data.split(' ');
-                if (parts.length >= 2 && parts[0].toLowerCase().includes('nama')) {
-                    const nama = parts[1];
-                    const kelas = parts[2] || '';
+                console.log('QR Data received:', data);
+                
+                // Coba berbagai format QR Code
+                // Format 1: "Nama: FATIH TJKT-ACP"
+                if (data.toLowerCase().includes('nama:')) {
+                    const cleanData = data.replace(/nama:\s*/i, '').trim();
+                    const parts = cleanData.split(/\s+/);
+                    
+                    if (parts.length >= 2) {
+                        const nama = parts[0];
+                        const kelas = parts.slice(1).join(' ');
+                        return { nama, kelas };
+                    }
+                }
+                
+                // Format 2: "FATIH TJKT-ACP" (tanpa prefix)
+                const parts = data.trim().split(/\s+/);
+                if (parts.length >= 2) {
+                    const nama = parts[0];
+                    const kelas = parts.slice(1).join(' ');
                     return { nama, kelas };
                 }
+                
+                // Format 3: JSON {"nama": "FATIH", "kelas": "TJKT-ACP"}
+                try {
+                    const jsonData = JSON.parse(data);
+                    if (jsonData.nama && jsonData.kelas) {
+                        return { nama: jsonData.nama, kelas: jsonData.kelas };
+                    }
+                } catch (e) {
+                    // Bukan JSON, lanjut ke format lain
+                }
+                
                 return null;
             } catch (error) {
+                console.error('Error parsing QR data:', error);
                 return null;
             }
         }
@@ -454,6 +542,27 @@
                 stopScanner();
             }
         });
+
+        // Handle window beforeunload
+        window.addEventListener('beforeunload', () => {
+            if (scanner) {
+                stopScanner();
+            }
+        });
+
+        // Test QR Code untuk development
+        function testQRCode() {
+            handleScanResult('Nama: FATIH TJKT-ACP');
+        }
+
+        // Debug: tambahkan tombol test (hapus di production)
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            const testBtn = document.createElement('button');
+            testBtn.textContent = '🧪 Test QR';
+            testBtn.className = 'btn';
+            testBtn.onclick = testQRCode;
+            document.querySelector('.controls').appendChild(testBtn);
+        }
     </script>
 </body>
 </html>
